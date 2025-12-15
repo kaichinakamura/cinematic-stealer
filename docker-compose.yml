@@ -1,0 +1,13 @@
+version: '3'
+services:
+  app:
+    build: .
+    container_name: cinematic-stealer
+    ports:
+      - "8501:8501"
+    volumes:
+      # ローカルのディレクトリをコンテナの/appに同期させる
+      - ./:/app
+    # 変更を検知してリロードするための設定などはStreamlitが自動でやってくれます
+    environment:
+      - PYTHONUNBUFFERED=1
