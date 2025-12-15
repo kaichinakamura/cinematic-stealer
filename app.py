@@ -121,11 +121,34 @@ def main():
 
         st.divider()
 
+        # Settings
         st.subheader("⚙️ Grading Settings")
         s_col1, s_col2 = st.columns(2)
         with s_col1:
-            method_choice = st.radio("Algorithm Mode", ("Histogram Match (Dramatic)", "Reinhard (Natural)"))
-            st.session_state.grading_method = "histogram" if "Histogram" in method_choice else "reinhard"
+            method_display = st.radio(
+                "Algorithm Mode",
+                (
+                    "Histogram Match (Dramatic)", 
+                    "Reinhard (Natural)", 
+                    "Covariance 3D (Rich)", 
+                    "Clustering AI (Segmented)"
+                ),
+                help="""
+                - Histogram: 色の分布を強制一致。劇的だがノイズが出やすい。
+                - Reinhard: 平均的な色味をコピー。自然で滑らか。
+                - Covariance 3D: 色の相関関係もコピー。Reinhardよりリッチ。
+                - Clustering AI: 画像を領域分割して個別に色合わせ。部分的な色移りに強い。
+                """
+            )
+            
+            # 表示名から内部キーへの変換マップ
+            key_map = {
+                "Histogram Match (Dramatic)": "histogram",
+                "Reinhard (Natural)": "reinhard",
+                "Covariance 3D (Rich)": "covariance",
+                "Clustering AI (Segmented)": "kmeans"
+            }
+            st.session_state.grading_method = key_map[method_display]
         with s_col2:
             preserve_lum = st.checkbox("💡 Preserve Luminance (明るさ維持)", value=True)
 
