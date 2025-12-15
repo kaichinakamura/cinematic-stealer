@@ -3,7 +3,7 @@ from PIL import Image
 import io
 import base64
 
-# 比較用スライダーライブラリ (インストール済みであることを前提)
+# 比較用スライダーライブラリ
 from streamlit_image_comparison import image_comparison
 
 # 内部モジュール
@@ -13,6 +13,32 @@ from core.lut_converter import LutGenerator
 st.set_page_config(layout="wide", page_title="Cinematic Color Stealer")
 
 # --- Helper Functions ---
+
+def init_session_state():
+    """
+    セッション状態（変数の箱）を確実に初期化する関数
+    main()の最初で必ず呼び出す
+    """
+    # モード設定
+    if 'swap_mode' not in st.session_state: 
+        st.session_state.swap_mode = False
+    
+    # 画像データ
+    if 'img_left' not in st.session_state: 
+        st.session_state.img_left = None
+    if 'img_right' not in st.session_state: 
+        st.session_state.img_right = None
+
+    # アップローダーの管理キー
+    if 'key_left_idx' not in st.session_state: 
+        st.session_state.key_left_idx = 0
+    if 'key_right_idx' not in st.session_state: 
+        st.session_state.key_right_idx = 0
+        
+    # メソッド選択
+    if 'grading_method' not in st.session_state:
+        st.session_state.grading_method = "histogram"
+
 def image_to_base64_str(img, quality=80):
     """HTML表示用にPIL画像をBase64文字列に変換する"""
     if img is None: return ""
@@ -85,19 +111,11 @@ def render_preview_area(image, title, key):
 def main():
     st.title("🎬 Cinematic Color Stealer")
 
+    # ★ここで必ず初期化を実行する
+    init_session_state()
+
     grader = ColorGradingEngine()
     lut_gen = LutGenerator()
-
-    # --- Session State ---
-    if 'swap_mode' not in st.session_state: st.session_state.swap_mode = False
-    
-    # 画像保持
-    if 'img_left' not in st.session_state: st.session_state.img_left = None
-    if 'img_right' not in st.session_state: st.session_state.img_right = None
-
-    # キー管理
-    if 'key_left_idx' not in st.session_state: st.session_state.key_left_idx = 0
-    if 'key_right_idx' not in st.session_state: st.session_state.key_right_idx = 0
 
     # Role Swap
     with st.container():
@@ -136,6 +154,7 @@ def main():
     target_img = None
     ref_img = None
 
+    # 画像が揃っているか確認
     if st.session_state.img_left and st.session_state.img_right:
         if st.session_state.swap_mode:
             target_img = st.session_state.img_right
@@ -146,47 +165,60 @@ def main():
 
         st.divider()
 
-        # Settings
-        preserve_lum = st.checkbox("💡 Preserve Luminance (明るさ維持・白飛び防止)", value=True)
+        # --- Settings Area ---
+        st.subheader("⚙️ Grading Settings")
+        
+        s_col1, s_col2 = st.columns(2)
+        
+        with s_col1:
+            method_choice = st.radio(
+                "Algorithm Mode",
+                ("Histogram Match (Dramatic)", "Reinhard (Natural)"),
+                help="Histogram: 色の分布を強制的に合わせます。\nReinhard: 全体の平均的な色味だけを合わせます。"
+            )
+            st.session_state.grading_method = "histogram" if "Histogram" in method_choice else "reinhard"
+
+        with s_col2:
+            preserve_lum = st.checkbox("💡 Preserve Luminance (明るさ維持)", value=True)
 
         # Generate Button
         if st.button("🚀 Generate Cinematic Look", type="primary", use_container_width=True):
             with st.spinner("Analyzing & Stealing colors..."):
-                # ここで「強度100%」の全適用画像を作ってキャッシュする
-                full_effect_img = grader.process(target_img, ref_img, intensity=1.0, preserve_luminance=preserve_lum)
+                full_effect_img = grader.process(
+                    target_img, 
+                    ref_img, 
+                    intensity=1.0, 
+                    preserve_luminance=preserve_lum,
+                    method=st.session_state.grading_method
+                )
                 
                 st.session_state.result_full = full_effect_img
                 st.session_state.result_target = target_img
                 st.session_state.result_ref = ref_img
                 st.session_state.preserve_setting = preserve_lum
 
-    # --- Result View (Unified Slider & Comparison) ---
+    # --- Result View ---
     if 'result_full' in st.session_state:
         st.subheader("Adjust & Preview")
         
-        # 1. 統合スライダー (これがプレビューにもDLにも効く)
-        # ユーザーが値を変更するとスクリプトが再実行されるが、重い処理はキャッシュ済みなので高速
+        # 1. 統合スライダー
         final_intensity = st.slider("Effect Intensity (適用の強さ)", 0.0, 1.0, 0.8, 0.05)
         
-        # 2. ブレンド処理 (軽量)
-        # オリジナル画像と、計算済みの100%適用画像を、スライダーの値で混ぜる
+        # 2. ブレンド処理
         blended_img = Image.blend(
             st.session_state.result_target, 
             st.session_state.result_full, 
             final_intensity
         )
 
-        # 3. 比較スライダー (streamlit-image-comparison) の表示
-        # 表示サイズを整える
+        # 3. 比較表示
         display_w = 800
         w_p = (display_w / float(st.session_state.result_target.size[0]))
         h_s = int((float(st.session_state.result_target.size[1]) * float(w_p)))
         
-        # 比較コンポーネント用にリサイズ
         comp_original = st.session_state.result_target.resize((display_w, h_s))
         comp_result = blended_img.resize((display_w, h_s))
         
-        # 比較表示実行
         image_comparison(
             img1=comp_original,
             img2=comp_result,
@@ -204,7 +236,6 @@ def main():
         d_col1, d_col2 = st.columns(2)
         
         with d_col1:
-            # 画像ダウンロード (現在表示されているblended_imgを使う)
             buf = io.BytesIO()
             blended_img.save(buf, format="PNG")
             
@@ -217,7 +248,6 @@ def main():
             )
 
         with d_col2:
-            # LUT生成 (現在のIntensity設定を使って生成)
             if st.button("LUTを生成 (.cube)"):
                 with st.spinner("Generating LUT..."):
                     identity_hald = lut_gen.generate_simple_identity_hald_8()
@@ -225,8 +255,9 @@ def main():
                     processed_hald = grader.apply_to_hald(
                         identity_hald, 
                         st.session_state.result_ref, 
-                        intensity=final_intensity, # ここも連動！
-                        preserve_luminance=st.session_state.preserve_setting
+                        intensity=final_intensity,
+                        preserve_luminance=st.session_state.preserve_setting,
+                        method=st.session_state.grading_method
                     )
                     cube_data = lut_gen.convert_to_cube(processed_hald, title="Cinematic")
                     
